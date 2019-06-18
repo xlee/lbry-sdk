@@ -642,12 +642,12 @@ class KademliaProtocol(DatagramProtocol):
             log.debug("Timeout while storing blob_hash %s at %s", binascii.hexlify(hash_value).decode()[:8], peer)
         except ValueError as err:
             log.error("Unexpected response: %s" % err)
-        except Exception as err:
+        except RemoteException as err:
             if 'Invalid token' in str(err):
                 self.peer_manager.clear_token(peer.node_id)
                 try:
                     return await __store()
-                except:
+                except (ValueError, asyncio.TimeoutError, RemoteException):
                     return peer.node_id, False
             else:
                 log.exception("Unexpected error while storing blob_hash")

@@ -104,10 +104,14 @@ class MainNetLedger(BaseLedger):
                              "%d change addresses (gap: %d), %d channels, %d certificates and %d claims. ",
                              account.id, balance, total_receiving, account.receiving.gap, total_change,
                              account.change.gap, channel_count, len(account.channel_keys), claim_count)
-        except:
-            log.exception(
-                'Failed to display wallet state, please file issue '
-                'for this bug along with the traceback you see below:')
+        except Exception as err:
+            if isinstance(err, asyncio.CancelledError):
+                raise
+            else:
+                log.exception(
+                    'Failed to display wallet state, please file issue '
+                    'for this bug along with the traceback you see below:'
+                )
 
 
 class TestNetLedger(MainNetLedger):

@@ -10,6 +10,7 @@ from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives.asymmetric.utils import Prehashed
 from cryptography.exceptions import InvalidSignature
+from google.protobuf.message import DecodeError
 
 from torba.client.basetransaction import BaseTransaction, BaseInput, BaseOutput, ReadOnlyList
 from torba.client.hash import hash160, sha256, Base58
@@ -91,7 +92,7 @@ class Output(BaseOutput):
     def can_decode_claim(self):
         try:
             return self.claim
-        except:
+        except (ValueError, DecodeError):
             return False
 
     @property

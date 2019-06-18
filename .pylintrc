@@ -70,7 +70,6 @@ disable=
   arguments-differ,
   attribute-defined-outside-init,
   bad-continuation,
-  bare-except,
   broad-except,
   cell-var-from-loop,
   consider-iterating-dictionary,

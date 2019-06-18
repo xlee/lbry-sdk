@@ -3,7 +3,7 @@ import struct
 from typing import Union, Tuple, Set, List
 from binascii import unhexlify
 from itertools import chain
-
+from google.protobuf.message import DecodeError
 
 from torba.server.db import DB
 from torba.server.util import class_logger
@@ -253,9 +253,9 @@ class SQLDB:
             tx = txo.tx_ref.tx
 
             try:
-                assert txo.claim_name
-                assert txo.normalized_name
-            except:
+                if not txo.claim_name or not txo.normalized_name:
+                    continue
+            except Exception:
                 #self.logger.exception(f"Could not decode claim name for {tx.id}:{txo.position}.")
                 continue
 
@@ -280,7 +280,7 @@ class SQLDB:
 
             try:
                 claim = txo.claim
-            except:
+            except (ValueError, DecodeError):
                 #self.logger.exception(f"Could not parse claim protobuf for {tx.id}:{txo.position}.")
                 continue
 
@@ -399,7 +399,7 @@ class SQLDB:
         for txo in chain(new_claims, updated_claims):
             try:
                 claim = txo.claim
-            except:
+            except (ValueError, DecodeError):
                 continue
             if claim.is_channel:
                 channels[txo.claim_hash] = txo

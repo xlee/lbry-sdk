@@ -477,8 +477,8 @@ class Daemon(metaclass=JSONRPCServerType):
         try:
             encoded_result = jsonrpc_dumps_pretty(
                 result, ledger=ledger, include_protobuf=include_protobuf)
-        except:
-            log.exception('Failed to encode JSON RPC result:')
+        except (json.JSONDecodeError, ValueError):
+            log.exception('Failed to encode JSON RPC result: %s', str(result))
             encoded_result = jsonrpc_dumps_pretty(JSONRPCError(
                 'After successfully executing the command, failed to encode result for JSON RPC response.',
                 JSONRPCError.CODE_APPLICATION_ERROR, format_exc()
