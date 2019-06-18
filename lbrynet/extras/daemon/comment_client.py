@@ -19,7 +19,7 @@ def sign_comment(**kwargs):
     )
     chosen_hash = hashes.SHA256()
     hasher = hashes.Hash(chosen_hash, default_backend())
-    value_to_hash = b':'.join(bytes(v, 'utf-8') for v in kwargs.values() if type(v) is str)
+    value_to_hash = b':'.join(bytes(v, 'utf-8') for v in kwargs.values() if isinstance(v, str))
     hasher.update(value_to_hash)
     digest = hasher.finalize()
     signature = private_key.sign(

@@ -179,7 +179,7 @@ class BlobRequest:
         return d
 
     def _get_request(self, request_type: blob_request_types):
-        request = tuple(filter(lambda r: type(r) == request_type, self.requests))
+        request = tuple(filter(lambda r: isinstance(r, request_type), self.requests))
         if request:
             return request[0]
 
@@ -235,7 +235,7 @@ class BlobResponse:
         return d
 
     def _get_response(self, response_type: blob_response_types):
-        response = tuple(filter(lambda r: type(r) == response_type, self.responses))
+        response = tuple(filter(lambda r: isinstance(r, response_type), self.responses))
         if response:
             return response[0]
 
