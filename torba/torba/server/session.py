@@ -185,7 +185,7 @@ class SessionManager:
         for kind in kinds:
             server = self.servers.pop(kind, None)
             if server:
-                server.close()
+                await server.close()
                 await server.wait_closed()
 
     async def _manage_servers(self):
