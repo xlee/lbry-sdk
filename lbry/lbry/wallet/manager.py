@@ -162,7 +162,7 @@ class LbryWalletManager(BaseWalletManager):
             try:
                 await manager._migrate_addresses(receiving_addresses, change_addresses)
             finally:
-                await ledger.db.close()
+                ledger.db.close()
         return manager
 
     async def _migrate_addresses(self, receiving_addresses: set, change_addresses: set):

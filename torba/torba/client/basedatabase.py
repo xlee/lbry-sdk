@@ -3,7 +3,7 @@ import asyncio
 from asyncio import wrap_future
 from concurrent.futures.thread import ThreadPoolExecutor
 
-from typing import Tuple, List, Union, Callable, Any, Awaitable, Iterable
+from typing import Tuple, List, Union, Callable, Any, Awaitable, Iterable, Optional
 
 import sqlite3
 
@@ -15,26 +15,35 @@ log = logging.getLogger(__name__)
 
 class AIOSQLite:
 
-    def __init__(self):
+    def __init__(self, max_workers=1, row_factory=sqlite3.Row):
         # has to be single threaded as there is no mapping of thread:connection
-        self.executor = ThreadPoolExecutor(max_workers=1)
-        self.connection: sqlite3.Connection = None
+        self.loop = asyncio.get_event_loop()
+        self.executor = ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix='AIOSQLite')
+        self.connection: Optional[sqlite3.Connection] = None
+        self.row_factory = row_factory
 
     @classmethod
-    async def connect(cls, path: Union[bytes, str], *args, **kwargs):
-        db = cls()
-        db.connection = await wrap_future(db.executor.submit(sqlite3.connect, path, *args, **kwargs))
+    async def connect(cls, path: Union[bytes, str], *args, max_workers=1, **kwargs):
+        db = cls(max_workers)
+        await db._connect(path, *args, **kwargs)
         return db
 
-    async def close(self):
-        def __close(conn):
-            self.executor.submit(conn.close)
-            self.executor.shutdown(wait=True)
+    def set_connection(self, path: Union[bytes, str], *args, **kwargs):
+        self.connection = sqlite3.connect(path, *args, **kwargs)
+
+    async def _connect(self, path: Union[bytes, str], *args, **kwargs):
+        await self.loop.run_in_executor(
+            self.executor, lambda: self.set_connection(path, *args, **kwargs)
+        )
+
+    def close(self):
         conn = self.connection
         if not conn:
             return
         self.connection = None
-        return asyncio.get_event_loop_policy().get_event_loop().call_later(0.01, __close, conn)
+        self.executor.submit(conn.close)
+        self.executor.shutdown(wait=True)
+        self.executor = None
 
     def executemany(self, sql: str, params: Iterable):
         def __executemany_in_a_transaction(conn: sqlite3.Connection, *args, **kwargs):
@@ -54,8 +63,8 @@ class AIOSQLite:
         parameters = parameters if parameters is not None else []
         return self.run(lambda conn, sql, parameters: conn.execute(sql, parameters), sql, parameters)
 
-    def run(self, fun, *args, **kwargs) -> Awaitable:
-        return wrap_future(self.executor.submit(self.__run_transaction, fun, *args, **kwargs))
+    async def run(self, fun, *args, **kwargs) -> Awaitable:
+        return await self.loop.run_in_executor(self.executor, lambda: self.__run_transaction(fun, *args, **kwargs))
 
     def __run_transaction(self, fun: Callable[[sqlite3.Connection, Any, Any], Any], *args, **kwargs):
         self.connection.execute('begin')
@@ -209,8 +218,8 @@ class SQLiteMixin:
         self.db = await AIOSQLite.connect(self._db_path)
         await self.db.executescript(self.CREATE_TABLES_QUERY)
 
-    async def close(self):
-        await self.db.close()
+    def close(self):
+        self.db.close()
 
     @staticmethod
     def _insert_sql(table: str, data: dict, ignore_duplicate: bool = False) -> Tuple[str, List]:

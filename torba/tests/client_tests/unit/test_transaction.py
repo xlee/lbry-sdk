@@ -191,8 +191,8 @@ class TestTransactionSigning(AsyncioTestCase):
         })
         await self.ledger.db.open()
 
-    async def asyncTearDown(self):
-        await self.ledger.db.close()
+    def tearDown(self):
+        self.ledger.db.close()
 
     async def test_sign(self):
         account = self.ledger.account_class.from_dict(
@@ -242,8 +242,8 @@ class TransactionIOBalancing(AsyncioTestCase):
         self.pubkey_hash = [self.ledger.address_to_hash160(a) for a in addresses]
         self.hash_cycler = cycle(self.pubkey_hash)
 
-    async def asyncTearDown(self):
-        await self.ledger.db.close()
+    def tearDown(self):
+        self.ledger.db.close()
 
     def txo(self, amount, address=None):
         return get_output(int(amount*COIN), address or next(self.hash_cycler))

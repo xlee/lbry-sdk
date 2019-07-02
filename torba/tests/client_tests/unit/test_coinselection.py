@@ -26,8 +26,8 @@ class BaseSelectionTestCase(AsyncioTestCase):
         })
         await self.ledger.db.open()
 
-    async def asyncTearDown(self):
-        await self.ledger.db.close()
+    def tearDown(self):
+        self.ledger.db.close()
 
     def estimates(self, *args):
         txos = args[0] if isinstance(args[0], (GeneratorType, list)) else args

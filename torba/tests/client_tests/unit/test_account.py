@@ -17,8 +17,8 @@ class TestHierarchicalDeterministicAccount(AsyncioTestCase):
         await self.ledger.db.open()
         self.account = self.ledger.account_class.generate(self.ledger, Wallet(), "torba")
 
-    async def asyncTearDown(self):
-        await self.ledger.db.close()
+    def tearDown(self) -> None:
+        self.ledger.db.close()
 
     async def test_generate_account(self):
         account = self.account
@@ -234,8 +234,8 @@ class TestSingleKeyAccount(AsyncioTestCase):
         self.account = self.ledger.account_class.generate(
             self.ledger, Wallet(), "torba", {'name': 'single-address'})
 
-    async def asyncTearDown(self):
-        await self.ledger.db.close()
+    def tearDown(self) -> None:
+        self.ledger.db.close()
 
     async def test_generate_account(self):
         account = self.account

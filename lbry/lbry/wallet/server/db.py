@@ -1,13 +1,13 @@
 import sqlite3
 import struct
-from typing import Union, Tuple, Set, List
+from typing import Union, Tuple, Set, List, Optional
 from binascii import unhexlify
 from itertools import chain
 from decimal import Decimal
 
 from torba.server.db import DB
 from torba.server.util import class_logger
-from torba.client.basedatabase import query, constraints_to_sql
+from torba.client.basedatabase import query, constraints_to_sql, AIOSQLite
 
 from lbry.schema.url import URL, normalize_name
 from lbry.schema.tags import clean_tags
@@ -202,16 +202,16 @@ class SQLDB:
     def __init__(self, main, path):
         self.main = main
         self._db_path = path
-        self.db = None
+        self.db: Optional[AIOSQLite] = None
         self.logger = class_logger(__name__, self.__class__.__name__)
         self.ledger = MainNetLedger if self.main.coin.NET == 'mainnet' else RegTestLedger
 
     def open(self):
-        self.db = sqlite3.connect(self._db_path, isolation_level=None, check_same_thread=False)
-        self.db.row_factory = sqlite3.Row
-        self.db.executescript(self.CREATE_TABLES_QUERY)
-        register_canonical_functions(self.db)
-        register_trending_functions(self.db)
+        self.db = AIOSQLite(max_workers=8, row_factory=sqlite3.Row)
+        self.db.set_connection(self._db_path, isolation_level=None, check_same_thread=False)
+        self.db.connection.executescript(self.CREATE_TABLES_QUERY)
+        register_canonical_functions(self.db.connection)
+        register_trending_functions(self.db.connection)
 
     def close(self):
         self.db.close()
@@ -244,7 +244,7 @@ class SQLDB:
         return f"DELETE FROM {table} WHERE {where}", values
 
     def execute(self, *args):
-        return self.db.execute(*args)
+        return self.db.connection.execute(*args)
 
     def begin(self):
         self.execute('begin;')
@@ -313,7 +313,7 @@ class SQLDB:
             self._clear_claim_metadata(claim_hashes)
 
         if tags:
-            self.db.executemany(
+            self.db.connection.executemany(
                 "INSERT INTO tag (tag, claim_hash, height) VALUES (?, ?, ?)", tags
             )
 
@@ -322,7 +322,7 @@ class SQLDB:
     def insert_claims(self, txos: List[Output], header):
         claims = self._upsertable_claims(txos, header)
         if claims:
-            self.db.executemany("""
+            self.db.connection.executemany("""
                 INSERT OR IGNORE INTO claim (
                     claim_hash, claim_id, claim_name, normalized, txo_hash, tx_position, amount,
                     claim_type, media_type, stream_type, timestamp, creation_timestamp,
@@ -344,7 +344,7 @@ class SQLDB:
     def update_claims(self, txos: List[Output], header):
         claims = self._upsertable_claims(txos, header, clear_first=True)
         if claims:
-            self.db.executemany("""
+            self.db.connection.executemany("""
                 UPDATE claim SET
                     txo_hash=:txo_hash, tx_position=:tx_position, amount=:amount, height=:height,
                     claim_type=:claim_type, media_type=:media_type, stream_type=:stream_type,
@@ -396,7 +396,7 @@ class SQLDB:
                 sqlite3.Binary(txo.claim_hash), txo.amount
             ))
         if supports:
-            self.db.executemany(
+            self.db.connection.executemany(
                 "INSERT OR IGNORE INTO support ("
                 "   txo_hash, tx_position, height, claim_hash, amount"
                 ") "
@@ -511,7 +511,7 @@ class SQLDB:
         sub_timer = timer.add_timer('update claims')
         sub_timer.start()
         if claim_updates:
-            self.db.executemany(f"""
+            self.db.connection.executemany(f"""
                 UPDATE claim SET 
                     channel_hash=:channel_hash, signature=:signature, signature_digest=:signature_digest,
                     signature_valid=:signature_valid,
@@ -551,7 +551,7 @@ class SQLDB:
         sub_timer = timer.add_timer('update channels')
         sub_timer.start()
         if channels:
-            self.db.executemany(
+            self.db.connection.executemany(
                 """
                 UPDATE claim SET
                     public_key_bytes=:public_key_bytes,
@@ -569,7 +569,7 @@ class SQLDB:
         sub_timer = timer.add_timer('update claims_in_channel counts')
         sub_timer.start()
         if all_channel_keys:
-            self.db.executemany(f"""
+            self.db.connection.executemany(f"""
                 UPDATE claim SET
                     claims_in_channel=(
                         SELECT COUNT(*) FROM claim AS claim_in_channel
@@ -877,7 +877,7 @@ class SQLDB:
             """, **constraints
         )
         try:
-            return self.db.execute(sql, values).fetchall()
+            return self.db.connection.execute(sql, values).fetchall()
         except:
             self.logger.exception(f'Failed to execute claim search query: {sql}')
             raise

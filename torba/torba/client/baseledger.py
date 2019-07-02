@@ -271,7 +271,7 @@ class BaseLedger(metaclass=LedgerRegistry):
         self._update_tasks.cancel()
         await self._update_tasks.done.wait()
         await self.network.stop()
-        await self.db.close()
+        self.db.close()
         await self.headers.close()
 
     async def update_headers(self, height=None, headers=None, subscription_update=False):

@@ -40,8 +40,8 @@ class LedgerTestCase(BitcoinHeadersTestCase):
         })
         await self.ledger.db.open()
 
-    async def asyncTearDown(self):
-        await self.ledger.db.close()
+    def tearDown(self):
+        self.ledger.db.close()
 
     def make_header(self, **kwargs):
         header = {

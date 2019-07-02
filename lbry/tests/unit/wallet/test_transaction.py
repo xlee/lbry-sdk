@@ -44,8 +44,8 @@ class TestSizeAndFeeEstimation(AsyncioTestCase):
         })
         await self.ledger.db.open()
 
-    async def asyncTearDown(self):
-        await self.ledger.db.close()
+    def tearDown(self):
+        self.ledger.db.close()
 
     def test_output_size_and_fee(self):
         txo = get_output()
@@ -226,8 +226,8 @@ class TestTransactionSigning(AsyncioTestCase):
         })
         await self.ledger.db.open()
 
-    async def asyncTearDown(self):
-        await self.ledger.db.close()
+    def tearDown(self):
+        self.ledger.db.close()
 
     async def test_sign(self):
         account = self.ledger.account_class.from_dict(

@@ -55,12 +55,12 @@ def calculate_trending(db, height, is_first_sync, final_height):
     if height % TRENDING_WINDOW != 0:
         return
 
-    db.execute(f"""
+    db.connection.execute(f"""
     DELETE FROM trend WHERE height < {height-(TRENDING_WINDOW*TRENDING_DATA_POINTS)}
     """)
 
     start = (height-TRENDING_WINDOW)+1
-    db.execute(f"""
+    db.connection.execute(f"""
     INSERT OR IGNORE INTO trend (claim_hash, height, amount)
     SELECT claim_hash, {start}, COALESCE(
             (SELECT SUM(amount) FROM support WHERE claim_hash=claim.claim_hash
@@ -70,14 +70,14 @@ def calculate_trending(db, height, is_first_sync, final_height):
     """)
 
     zscore = ZScore()
-    for (global_sum,) in db.execute("SELECT AVG(amount) FROM trend GROUP BY height"):
+    for (global_sum,) in db.connection.execute("SELECT AVG(amount) FROM trend GROUP BY height"):
         zscore.step(global_sum)
     global_mean, global_deviation = 0, 1
     if zscore.count > 0:
         global_mean = zscore.mean
         global_deviation = zscore.standard_deviation
 
-    db.execute(f"""
+    db.connection.execute(f"""
     UPDATE claim SET
         trending_local = COALESCE((
             SELECT zscore(amount) FROM trend
@@ -95,7 +95,7 @@ def calculate_trending(db, height, is_first_sync, final_height):
     # normally the SQL will be: "ORDER BY trending_group, trending_mixed"
     # changing the trending_group will have significant impact on trending results
     # changing the value used for trending_mixed will only impact trending within a trending_group
-    db.execute(f"""
+    db.connection.execute(f"""
     UPDATE claim SET
         trending_group = CASE 
         WHEN trending_local > 0 AND trending_global > 0 THEN 4

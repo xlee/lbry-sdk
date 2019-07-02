@@ -15,8 +15,8 @@ class TestAccount(AsyncioTestCase):
         })
         await self.ledger.db.open()
 
-    async def asyncTearDown(self):
-        await self.ledger.db.close()
+    def tearDown(self):
+        self.ledger.db.close()
 
     async def test_generate_account(self):
         account = Account.generate(self.ledger, Wallet(), 'lbryum')
