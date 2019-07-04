@@ -79,6 +79,8 @@ class SQLDB:
 
     PRAGMAS = """
         pragma journal_mode=WAL;
+        pragma temp_store=MEMORY;
+        pragma cache_size=1000000;
     """
 
     CREATE_CLAIM_TABLE = """
