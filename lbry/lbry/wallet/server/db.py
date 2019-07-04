@@ -156,6 +156,15 @@ class SQLDB:
         create index if not exists claim_trending_mixed_idx on claim (trending_mixed);
         create index if not exists claim_trending_local_idx on claim (trending_local);
         create index if not exists claim_trending_global_idx on claim (trending_global);
+
+        create index if not exists claim_trending_global_to_mixed_idx on claim (trending_global, trending_mixed);
+        create index if not exists claim_trending_global_to_local_idx on claim (trending_global, trending_local);
+        create index if not exists claim_trending_global_to_group_idx on claim (trending_global, trending_group);
+
+        create index if not exists claim_trending_global_to_effective_amount_idx on claim (trending_global, effective_amount);
+        create index if not exists claim_trending_mixed_to_effective_amount_idx on claim (trending_mixed, effective_amount);
+        create index if not exists claim_trending_local_to_effective_amount_idx on claim (trending_local, effective_amount);
+        create index if not exists claim_trending_group_to_effective_amount_idx on claim (trending_group, effective_amount);
     """
 
     CREATE_SUPPORT_TABLE = """
