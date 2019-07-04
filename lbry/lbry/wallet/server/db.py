@@ -218,7 +218,7 @@ class SQLDB:
         self.ledger = MainNetLedger if self.main.coin.NET == 'mainnet' else RegTestLedger
 
     def open(self):
-        self.db = sqlite3.connect(self._db_path, isolation_level=None, check_same_thread=False)
+        self.db = sqlite3.connect(self._db_path, isolation_level=None, check_same_thread=True)
         self.db.row_factory = sqlite3.Row
         self.db.executescript(self.CREATE_TABLES_QUERY)
         register_canonical_functions(self.db)
