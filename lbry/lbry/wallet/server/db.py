@@ -756,7 +756,7 @@ class SQLDB:
                 if column == 'name':
                     column = 'normalized'
                 sql_order_by.append(
-                    f"claim.{column} ASC" if is_asc else f"claim.{column} DESC"
+                    f"claim.{column} {'ASC' if is_asc else 'DESC'}"
                 )
             constraints['order_by'] = sql_order_by
 
@@ -864,18 +864,40 @@ class SQLDB:
         if 'fee_currency' in constraints:
             constraints['claim.fee_currency'] = constraints.pop('fee_currency').lower()
 
-        _apply_constraints_for_array_attributes(constraints, 'tag', clean_tags)
+        any_tags = clean_tags(constraints.pop("any_tags", []))
+        not_tags = clean_tags(constraints.pop("not_tags", []))
+        all_tags = clean_tags(constraints.pop("all_tags", []))
+
+        select = [
+            f"SELECT {'DISTINCT' if join else ''} {cols} FROM claim",
+            "LEFT JOIN claimtrie ON claim.claim_hash=claimtrie.claim_hash",
+            "LEFT JOIN claim as channel ON claim.channel_hash=channel.claim_hash"
+        ]
+
+        if any_tags or not_tags:
+            select.append("INNER JOIN tag tagged_claim ON tagged_claim.claim_hash=claim.claim_hash")
+
+        if any_tags:
+            any_tags_sql = ", ".join(f":$any_tag{i}" for i in range(len(any_tags)))
+            constraints.update({f"$any_tag{i}": tag for i, tag in enumerate(any_tags)})
+            select.append(f"AND tagged_claim.tag IN ({any_tags_sql})")
+        if not_tags:
+            not_tags_sql = ", ".join(f":$not_tag{i}" for i in range(len(not_tags)))
+            constraints.update({f"$not_tag{i}": tag for i, tag in enumerate(not_tags)})
+            select.append(
+                f"AND ("
+                f"SELECT 1 FROM tag not_tag "
+                f"INNER JOIN claim not_tagged_claim ON not_tagged_claim.claim_hash=claim.claim_hash "
+                f"AND not_tag.claim_hash=not_tagged_claim.claim_hash AND not_tag.tag IN ({not_tags_sql})"
+                f") IS NULL"
+            )
+
         _apply_constraints_for_array_attributes(constraints, 'language', lambda _: _)
         _apply_constraints_for_array_attributes(constraints, 'location', lambda _: _)
-
-        select = f"SELECT {cols} FROM claim"
-
         sql, values = query(
-            select if not join else select+"""
-            LEFT JOIN claimtrie USING (claim_hash)
-            LEFT JOIN claim as channel ON (claim.channel_hash=channel.claim_hash)
-            """, **constraints
+            " ".join(select), **constraints
         )
+
         try:
             return self.db.execute(sql, values).fetchall()
         except:
@@ -902,8 +924,9 @@ class SQLDB:
             claim.trending_group, claim.trending_mixed,
             claim.trending_local, claim.trending_global,
             claim.short_url, claim.canonical_url,
-            claim.channel_hash, channel.txo_hash AS channel_txo_hash,
-            channel.height AS channel_height, claim.signature_valid
+            claim.channel_hash,
+            channel.txo_hash AS channel_txo_hash, channel.height AS channel_height,
+            claim.signature_valid
             """, **constraints
         )
 
@@ -933,7 +956,8 @@ class SQLDB:
     def search(self, constraints) -> Tuple[List, List, int, int]:
         assert set(constraints).issubset(self.SEARCH_PARAMS), \
             f"Search query contains invalid arguments: {set(constraints).difference(self.SEARCH_PARAMS)}"
-        total = self.get_claims_count(**constraints)
+        # total = self.get_claims_count(**constraints)
+        total = None
         constraints['offset'] = abs(constraints.get('offset', 0))
         constraints['limit'] = min(abs(constraints.get('limit', 10)), 50)
         if 'order_by' not in constraints:
