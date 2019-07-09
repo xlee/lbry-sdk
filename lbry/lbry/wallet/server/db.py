@@ -1,9 +1,11 @@
 import sqlite3
 import struct
+import asyncio
 from typing import Union, Tuple, Set, List
 from binascii import unhexlify
 from itertools import chain
 from decimal import Decimal
+from concurrent.futures.process import ProcessPoolExecutor
 
 from torba.server.db import DB
 from torba.server.util import class_logger
@@ -75,8 +77,18 @@ def _apply_constraints_for_array_attributes(constraints, attr, cleaner):
         """
 
 
-class SQLDB:
+def _pool_execute(_db_path: str, pragmas: str, sql, kwargs):
+    conn = sqlite3.connect(_db_path)
+    conn.row_factory = sqlite3.Row
+    try:
+        conn.executescript(pragmas)
+        result = conn.cursor().execute(sql, kwargs).fetchall()
+        return [{key: row[key] for key in row.keys()} for row in result]
+    finally:
+        conn.close()
 
+
+class SQLDB:
     PRAGMAS = """
         pragma journal_mode=WAL;
         pragma temp_store=MEMORY;
@@ -210,12 +222,19 @@ class SQLDB:
         CREATE_TAG_TABLE
     )
 
-    def __init__(self, main, path):
+    def __init__(self, main, path, readers: int = 4):
         self.main = main
         self._db_path = path
         self.db = None
         self.logger = class_logger(__name__, self.__class__.__name__)
         self.ledger = MainNetLedger if self.main.coin.NET == 'mainnet' else RegTestLedger
+        self.process_pool = ProcessPoolExecutor(readers)
+
+    def execute_and_fetchall_from_pool(self, sql, kwargs):
+        loop = asyncio.get_event_loop()
+        return loop.run_until_complete(
+                loop.run_in_executor(self.process_pool, _pool_execute, self._db_path, self.PRAGMAS, sql, kwargs),
+        )
 
     def open(self):
         self.db = sqlite3.connect(self._db_path, isolation_level=None, check_same_thread=True)
@@ -225,6 +244,7 @@ class SQLDB:
         register_trending_functions(self.db)
 
     def close(self):
+        self.process_pool.shutdown()
         self.db.close()
 
     @staticmethod
@@ -908,9 +928,8 @@ class SQLDB:
         sql, values = query(
             " ".join(select), **constraints
         )
-
         try:
-            return self.db.execute(sql, values).fetchall()
+            return self.execute_and_fetchall_from_pool(sql, values)
         except:
             self.logger.exception(f'Failed to execute claim search query: {sql}')
             raise

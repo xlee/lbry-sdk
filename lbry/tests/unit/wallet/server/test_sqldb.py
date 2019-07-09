@@ -1,6 +1,9 @@
+import os
 import unittest
 import ecdsa
 import hashlib
+import tempfile
+import shutil
 from binascii import hexlify
 from torba.client.constants import COIN, NULL_HASH32
 
@@ -41,7 +44,9 @@ class TestSQLDB(unittest.TestCase):
         self.first_sync = False
         self.daemon_height = 1
         self.coin = LBCRegTest()
-        self.sql = SQLDB(self, ':memory:')
+        self._db_dir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self._db_dir)
+        self.sql = SQLDB(self, os.path.join(self._db_dir, 'temp_claims.db'))
         self.timer = Timer('BlockProcessor')
         self.sql.open()
         self._current_height = 0
