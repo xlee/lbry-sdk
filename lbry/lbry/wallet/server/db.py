@@ -1,4 +1,5 @@
 import os
+import time
 import sqlite3
 import struct
 import asyncio
@@ -79,7 +80,18 @@ def _apply_constraints_for_array_attributes(constraints, attr, cleaner):
         """
 
 
-def _pool_execute(_db_path: str, pragmas: str, sql, kwargs):
+def get_slow_query_interruptor(timeout, interrupt):
+    stop_at = time.time() + timeout
+
+    def interruptor():
+        if time.time() >= stop_at:
+            print("interrupting slow query")
+            interrupt()
+
+    return interruptor
+
+
+def _pool_execute(_db_path: str, pragmas: str, sql, kwargs, timeout=1):
     globs = globals()
     if '__sqlite_connection' not in globs:
         print(f"\nOpening sqlite connection in reader process {os.getpid()}")
@@ -89,6 +101,7 @@ def _pool_execute(_db_path: str, pragmas: str, sql, kwargs):
         local = threading.local()
         local.sqlite_conn = conn
         globs['__sqlite_connection'] = local
+        conn.set_progress_handler(get_slow_query_interruptor(timeout, conn.interrupt), 100)
     else:
         conn = globs['__sqlite_connection'].sqlite_conn
     result = conn.cursor().execute(sql, kwargs).fetchall()
@@ -96,6 +109,8 @@ def _pool_execute(_db_path: str, pragmas: str, sql, kwargs):
 
 
 class SQLDB:
+    SLOW_QUERY_TIMEOUT = 1
+
     PRAGMAS = """
         pragma journal_mode=WAL;
         pragma temp_store=MEMORY;
@@ -934,8 +949,9 @@ class SQLDB:
         }
 
         try:
-            return await asyncio.get_event_loop().run_in_executor(
-                self.process_pool, _pool_execute, self._db_path, self.PRAGMAS, sql, values
+            loop = asyncio.get_event_loop()
+            return await loop.run_in_executor(
+                self.process_pool, _pool_execute, self._db_path, self.PRAGMAS, sql, values, self.SLOW_QUERY_TIMEOUT
             )
         except:
             self.logger.exception(f'Failed to execute claim search query: {sql}')
