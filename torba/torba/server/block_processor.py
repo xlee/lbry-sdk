@@ -183,7 +183,7 @@ class BlockProcessor:
         # consistent and not being updated elsewhere.
         async def run_in_thread_locked():
             async with self.state_lock:
-                return await asyncio.get_event_loop().run_in_executor(None, func, *args)
+                return func(*args)
         return await asyncio.shield(run_in_thread_locked())
 
     async def check_and_advance_blocks(self, raw_blocks):
