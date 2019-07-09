@@ -184,7 +184,11 @@ class BlockProcessor:
         async def run_in_thread_locked():
             async with self.state_lock:
                 return func(*args)
-        return await asyncio.shield(run_in_thread_locked())
+        try:
+            return await asyncio.shield(run_in_thread_locked())
+        except Exception:
+            self.logger.exception("raised exception running in thread with lock")
+            raise
 
     async def check_and_advance_blocks(self, raw_blocks):
         """Process the list of raw blocks passed.  Detects and handles
