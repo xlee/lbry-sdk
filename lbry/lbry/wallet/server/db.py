@@ -1,3 +1,4 @@
+import os
 import sqlite3
 import struct
 import asyncio
@@ -5,6 +6,7 @@ from typing import Union, Tuple, Set, List
 from binascii import unhexlify
 from itertools import chain
 from decimal import Decimal
+import threading
 from concurrent.futures.process import ProcessPoolExecutor
 
 from torba.server.db import DB
@@ -78,14 +80,19 @@ def _apply_constraints_for_array_attributes(constraints, attr, cleaner):
 
 
 def _pool_execute(_db_path: str, pragmas: str, sql, kwargs):
-    conn = sqlite3.connect(_db_path)
-    conn.row_factory = sqlite3.Row
-    try:
+    globs = globals()
+    if '__sqlite_connection' not in globs:
+        print(f"\nOpening sqlite connection in reader process {os.getpid()}")
+        conn = sqlite3.connect(_db_path)
+        conn.row_factory = sqlite3.Row
         conn.executescript(pragmas)
-        result = conn.cursor().execute(sql, kwargs).fetchall()
-        return [{key: row[key] for key in row.keys()} for row in result]
-    finally:
-        conn.close()
+        local = threading.local()
+        local.sqlite_conn = conn
+        globs['__sqlite_connection'] = local
+    else:
+        conn = globs['__sqlite_connection'].sqlite_conn
+    result = conn.cursor().execute(sql, kwargs).fetchall()
+    return [{key: row[key] for key in row.keys()} for row in result]
 
 
 class SQLDB:
