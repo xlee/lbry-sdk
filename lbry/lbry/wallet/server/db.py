@@ -954,7 +954,7 @@ class SQLDB:
                 self.process_pool, _pool_execute, self._db_path, self.PRAGMAS, sql, values, self.SLOW_QUERY_TIMEOUT
             )
         except:
-            self.logger.exception(f'Failed to execute claim search query: {sql}')
+            self.logger.exception(f'Failed to execute claim search query: %s\nParams: %s', sql, values)
             raise
 
     async def get_claims_count(self, **constraints):
