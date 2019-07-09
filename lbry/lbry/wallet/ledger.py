@@ -61,7 +61,7 @@ class MainNetLedger(BaseLedger):
         return outputs.inflate(txs), outputs.offset, outputs.total
 
     async def resolve(self, urls):
-        txos = (await self._inflate_outputs(self.network.resolve(urls)))[0]
+        txos = (await self._inflate_outputs((self.network.resolve(urls))))[0]
         assert len(urls) == len(txos), "Mismatch between urls requested for resolve and responses received."
         result = {}
         for url, txo in zip(urls, txos):

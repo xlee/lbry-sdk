@@ -1,10 +1,12 @@
 import os
+import asyncio
 import unittest
 import ecdsa
 import hashlib
 import tempfile
 import shutil
 from binascii import hexlify
+from torba.testcase import AsyncioTestCase
 from torba.client.constants import COIN, NULL_HASH32
 
 from lbry.schema.claim import Claim
@@ -38,15 +40,17 @@ class OldWalletServerTransaction:
         return self.tx.raw
 
 
-class TestSQLDB(unittest.TestCase):
+class TestSQLDB(AsyncioTestCase):
 
-    def setUp(self):
+    async def asyncSetUp(self):
+        await super().asyncSetUp()
         self.first_sync = False
         self.daemon_height = 1
         self.coin = LBCRegTest()
         self._db_dir = tempfile.mkdtemp()
-        self.addCleanup(shutil.rmtree, self._db_dir)
         self.sql = SQLDB(self, os.path.join(self._db_dir, 'temp_claims.db'))
+        self.addCleanup(self.sql.close)
+        self.addCleanup(shutil.rmtree, self._db_dir)
         self.timer = Timer('BlockProcessor')
         self.sql.open()
         self._current_height = 0
@@ -336,7 +340,7 @@ class TestClaimtrie(TestSQLDB):
     def get_stream_with_claim_id_prefix(self, prefix, cached_iteration=None, **kwargs):
         return self._get_x_with_claim_id_prefix(self.get_stream, prefix, cached_iteration, **kwargs)
 
-    def test_canonical_url_and_channel_validation(self):
+    async def test_canonical_url_and_channel_validation(self):
         advance = self.advance
 
         tx_chan_a = self.get_channel_with_claim_id_prefix('a', 1, key=b'c')
@@ -344,7 +348,7 @@ class TestClaimtrie(TestSQLDB):
         txo_chan_a = tx_chan_a[0].tx.outputs[0]
         advance(1, [tx_chan_a])
         advance(2, [tx_chan_ab])
-        r_ab, r_a = self.sql._search(order_by=['creation_height'], limit=2)
+        r_ab, r_a = await self.sql._search(order_by=['creation_height'], limit=2)
         self.assertEqual("@foo#a", r_a['short_url'])
         self.assertEqual("@foo#ab", r_ab['short_url'])
         self.assertIsNone(r_a['canonical_url'])
@@ -357,7 +361,7 @@ class TestClaimtrie(TestSQLDB):
         tx_abc = self.get_stream_with_claim_id_prefix('abc', 65)
         advance(3, [tx_a])
         advance(4, [tx_ab, tx_abc])
-        r_abc, r_ab, r_a = self.sql._search(order_by=['creation_height', 'tx_position'], limit=3)
+        r_abc, r_ab, r_a = await self.sql._search(order_by=['creation_height', 'tx_position'], limit=3)
         self.assertEqual("foo#a", r_a['short_url'])
         self.assertEqual("foo#ab", r_ab['short_url'])
         self.assertEqual("foo#abc", r_abc['short_url'])
@@ -371,39 +375,39 @@ class TestClaimtrie(TestSQLDB):
         ab2_claim_id = tx_ab2[0].tx.outputs[0].claim_id
         advance(6, [tx_a2])
         advance(7, [tx_ab2])
-        r_ab2, r_a2 = self.sql._search(order_by=['creation_height'], limit=2)
+        r_ab2, r_a2 = await self.sql._search(order_by=['creation_height'], limit=2)
         self.assertEqual(f"foo#{a2_claim_id[:2]}", r_a2['short_url'])
         self.assertEqual(f"foo#{ab2_claim_id[:4]}", r_ab2['short_url'])
         self.assertEqual("@foo#a/foo#a", r_a2['canonical_url'])
         self.assertEqual("@foo#a/foo#ab", r_ab2['canonical_url'])
-        self.assertEqual(2, self.sql._search(claim_id=txo_chan_a.claim_id, limit=1)[0]['claims_in_channel'])
+        self.assertEqual(2, (await self.sql._search(claim_id=txo_chan_a.claim_id, limit=1))[0]['claims_in_channel'])
 
         # change channel public key, invaliding stream claim signatures
         advance(8, [self.get_channel_update(txo_chan_a, COIN, key=b'a')])
-        r_ab2, r_a2 = self.sql._search(order_by=['creation_height'], limit=2)
+        r_ab2, r_a2 = await self.sql._search(order_by=['creation_height'], limit=2)
         self.assertEqual(f"foo#{a2_claim_id[:2]}", r_a2['short_url'])
         self.assertEqual(f"foo#{ab2_claim_id[:4]}", r_ab2['short_url'])
         self.assertIsNone(r_a2['canonical_url'])
         self.assertIsNone(r_ab2['canonical_url'])
-        self.assertEqual(0, self.sql._search(claim_id=txo_chan_a.claim_id, limit=1)[0]['claims_in_channel'])
+        self.assertEqual(0, (await self.sql._search(claim_id=txo_chan_a.claim_id, limit=1))[0]['claims_in_channel'])
 
         # reinstate previous channel public key (previous stream claim signatures become valid again)
         channel_update = self.get_channel_update(txo_chan_a, COIN, key=b'c')
         advance(9, [channel_update])
-        r_ab2, r_a2 = self.sql._search(order_by=['creation_height'], limit=2)
+        r_ab2, r_a2 = await self.sql._search(order_by=['creation_height'], limit=2)
         self.assertEqual(f"foo#{a2_claim_id[:2]}", r_a2['short_url'])
         self.assertEqual(f"foo#{ab2_claim_id[:4]}", r_ab2['short_url'])
         self.assertEqual("@foo#a/foo#a", r_a2['canonical_url'])
         self.assertEqual("@foo#a/foo#ab", r_ab2['canonical_url'])
-        self.assertEqual(2, self.sql._search(claim_id=txo_chan_a.claim_id, limit=1)[0]['claims_in_channel'])
+        self.assertEqual(2, (await self.sql._search(claim_id=txo_chan_a.claim_id, limit=1))[0]['claims_in_channel'])
 
         # claim abandon updates claims_in_channel
         advance(10, [self.get_abandon(tx_ab2)])
-        self.assertEqual(1, self.sql._search(claim_id=txo_chan_a.claim_id, limit=1)[0]['claims_in_channel'])
+        self.assertEqual(1, (await self.sql._search(claim_id=txo_chan_a.claim_id, limit=1))[0]['claims_in_channel'])
 
         # delete channel, invaliding stream claim signatures
         advance(11, [self.get_abandon(channel_update)])
-        r_a2, = self.sql._search(order_by=['creation_height'], limit=1)
+        r_a2, = await self.sql._search(order_by=['creation_height'], limit=1)
         self.assertEqual(f"foo#{a2_claim_id[:2]}", r_a2['short_url'])
         self.assertIsNone(r_a2['canonical_url'])
 
@@ -426,7 +430,7 @@ class TestClaimtrie(TestSQLDB):
 
 class TestTrending(TestSQLDB):
 
-    def test_trending(self):
+    async def test_trending(self):
         advance, state = self.advance, self.state
         no_trend = self.get_stream('Claim A', COIN)
         downwards = self.get_stream('Claim B', COIN)
@@ -441,7 +445,7 @@ class TestTrending(TestSQLDB):
                 self.get_support(up_medium, (20+(window*(2 if window == 7 else 1)))*COIN),
                 self.get_support(up_biggly, (20+(window*(3 if window == 7 else 1)))*COIN),
             ])
-        results = self.sql._search(order_by=['trending_local'])
+        results = await self.sql._search(order_by=['trending_local'])
         self.assertEqual([c.claim_id for c in claims], [hexlify(c['claim_hash'][::-1]).decode() for c in results])
         self.assertEqual([10, 6, 2, 0, -2], [int(c['trending_local']) for c in results])
         self.assertEqual([53, 38, -32, 0, -6], [int(c['trending_global']) for c in results])

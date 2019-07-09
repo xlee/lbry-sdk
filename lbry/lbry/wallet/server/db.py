@@ -230,12 +230,6 @@ class SQLDB:
         self.ledger = MainNetLedger if self.main.coin.NET == 'mainnet' else RegTestLedger
         self.process_pool = ProcessPoolExecutor(readers)
 
-    def execute_and_fetchall_from_pool(self, sql, kwargs):
-        loop = asyncio.get_event_loop()
-        return loop.run_until_complete(
-                loop.run_in_executor(self.process_pool, _pool_execute, self._db_path, self.PRAGMAS, sql, kwargs),
-        )
-
     def open(self):
         self.db = sqlite3.connect(self._db_path, isolation_level=None, check_same_thread=True)
         self.db.row_factory = sqlite3.Row
@@ -776,7 +770,7 @@ class SQLDB:
         r(self.update_claimtrie, height, recalculate_claim_hashes, deleted_claim_names, forward_timer=True)
         r(calculate_trending, self.db, height, self.main.first_sync, daemon_height)
 
-    def get_claims(self, cols, join=True, **constraints):
+    async def get_claims(self, cols, join=True, **constraints):
         if 'order_by' in constraints:
             sql_order_by = []
             for order_by in constraints['order_by']:
@@ -834,8 +828,8 @@ class SQLDB:
 
         if 'channel' in constraints:
             channel_url = constraints.pop('channel')
-            match = self._resolve_one(channel_url)
-            if isinstance(match, sqlite3.Row):
+            match = await self._resolve_one(channel_url)
+            if isinstance(match, dict):
                 constraints['channel_hash'] = match['claim_hash']
             else:
                 return [[0]] if cols == 'count(*)' else []
@@ -928,21 +922,27 @@ class SQLDB:
         sql, values = query(
             " ".join(select), **constraints
         )
+        values = {
+            k: v if not isinstance(v, memoryview) else v.tobytes() for k, v in values.items()
+        }
+
         try:
-            return self.execute_and_fetchall_from_pool(sql, values)
+            return await asyncio.get_event_loop().run_in_executor(
+                self.process_pool, _pool_execute, self._db_path, self.PRAGMAS, sql, values
+            )
         except:
             self.logger.exception(f'Failed to execute claim search query: {sql}')
             raise
 
-    def get_claims_count(self, **constraints):
+    async def get_claims_count(self, **constraints):
         constraints.pop('offset', None)
         constraints.pop('limit', None)
         constraints.pop('order_by', None)
-        count = self.get_claims('count(*)', join=False, **constraints)
+        count = await self.get_claims('count(*)', join=False, **constraints)
         return count[0][0]
 
-    def _search(self, **constraints):
-        return self.get_claims(
+    async def _search(self, **constraints):
+        return await self.get_claims(
             """
             claimtrie.claim_hash as is_controlling,
             claimtrie.last_take_over_height,
@@ -983,7 +983,7 @@ class SQLDB:
         'name',
     } | INTEGER_PARAMS
 
-    def search(self, constraints) -> Tuple[List, List, int, int]:
+    async def search(self, constraints) -> Tuple[List, List, int, int]:
         assert set(constraints).issubset(self.SEARCH_PARAMS), \
             f"Search query contains invalid arguments: {set(constraints).difference(self.SEARCH_PARAMS)}"
         # total = self.get_claims_count(**constraints)
@@ -992,14 +992,14 @@ class SQLDB:
         constraints['limit'] = min(abs(constraints.get('limit', 10)), 50)
         if 'order_by' not in constraints:
             constraints['order_by'] = ["height", "^name"]
-        txo_rows = self._search(**constraints)
+        txo_rows = await self._search(**constraints)
         channel_hashes = set(txo['channel_hash'] for txo in txo_rows if txo['channel_hash'])
         extra_txo_rows = []
         if channel_hashes:
-            extra_txo_rows = self._search(**{'claim.claim_hash__in': [sqlite3.Binary(h) for h in channel_hashes]})
+            extra_txo_rows = await self._search(**{'claim.claim_hash__in': [sqlite3.Binary(h) for h in channel_hashes]})
         return txo_rows, extra_txo_rows, constraints['offset'], total
 
-    def _resolve_one(self, raw_url):
+    async def _resolve_one(self, raw_url):
         try:
             url = URL.parse(raw_url)
         except ValueError as e:
@@ -1013,7 +1013,7 @@ class SQLDB:
                 query['is_controlling'] = True
             else:
                 query['order_by'] = ['^height']
-            matches = self._search(**query, limit=1)
+            matches = await self._search(**query, limit=1)
             if matches:
                 channel = matches[0]
             else:
@@ -1031,7 +1031,7 @@ class SQLDB:
                 query['signature_valid'] = 1
             elif set(query) == {'name'}:
                 query['is_controlling'] = 1
-            matches = self._search(**query, limit=1)
+            matches = await self._search(**query, limit=1)
             if matches:
                 return matches[0]
             else:
@@ -1039,17 +1039,17 @@ class SQLDB:
 
         return channel
 
-    def resolve(self, urls) -> Tuple[List, List]:
+    async def resolve(self, urls) -> Tuple[List, List]:
         result = []
         channel_hashes = set()
         for raw_url in urls:
-            match = self._resolve_one(raw_url)
+            match = await self._resolve_one(raw_url)
             result.append(match)
-            if isinstance(match, sqlite3.Row) and match['channel_hash']:
+            if isinstance(match, dict) and match['channel_hash']:
                 channel_hashes.add(match['channel_hash'])
         extra_txo_rows = []
         if channel_hashes:
-            extra_txo_rows = self._search(**{'claim.claim_hash__in': [sqlite3.Binary(h) for h in channel_hashes]})
+            extra_txo_rows = await self._search(**{'claim.claim_hash__in': [sqlite3.Binary(h) for h in channel_hashes]})
         return result, extra_txo_rows
 
 

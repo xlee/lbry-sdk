@@ -48,10 +48,10 @@ class LBRYElectrumX(ElectrumX):
     async def claimtrie_search(self, **kwargs):
         if 'claim_id' in kwargs:
             self.assert_claim_id(kwargs['claim_id'])
-        return Outputs.to_base64(*self.db.sql.search(kwargs))
+        return Outputs.to_base64(*(await self.db.sql.search(kwargs)))
 
     async def claimtrie_resolve(self, *urls):
-        return Outputs.to_base64(*self.db.sql.resolve(urls))
+        return Outputs.to_base64(*(await self.db.sql.resolve(urls)))
 
     async def get_server_height(self):
         return self.bp.height
@@ -137,7 +137,7 @@ class LBRYElectrumX(ElectrumX):
     async def claimtrie_getclaimsforname(self, name):
         claims = await self.daemon.getclaimsforname(name)
         if claims:
-            claims['claims'] = [self.format_claim_from_daemon(claim, name) for claim in claims['claims']]
+            claims['claims'] = [(await self.format_claim_from_daemon(claim, name)) for claim in claims['claims']]
             claims['supports_without_claims'] = []  # fixme temporary
             del claims['supports without claims']
             claims['last_takeover_height'] = claims['nLastTakeoverHeight']
@@ -150,10 +150,10 @@ class LBRYElectrumX(ElectrumX):
         result = []
         for claim in claims:
             if claim and claim.get('value'):
-                result.append(self.format_claim_from_daemon(claim))
+                result.append((await self.format_claim_from_daemon(claim)))
         return result
 
-    def format_claim_from_daemon(self, claim, name=None):
+    async def format_claim_from_daemon(self, claim, name=None):
         """Changes the returned claim data to the format expected by lbry and adds missing fields."""
 
         if not claim:
@@ -165,7 +165,7 @@ class LBRYElectrumX(ElectrumX):
 
         if 'name' in claim:
             name = claim['name'].encode('ISO-8859-1').decode()
-        info = self.db.sql.get_claims(claim_id=claim['claimId'])
+        info = await self.db.sql.get_claims(claim_id=claim['claimId'])
         if not info:
             #  raise RPCError("Lbrycrd has {} but not lbryumx, please submit a bug report.".format(claim_id))
             return {}
@@ -209,7 +209,7 @@ class LBRYElectrumX(ElectrumX):
     async def claimtrie_getclaimbyid(self, claim_id):
         self.assert_claim_id(claim_id)
         claim = await self.daemon.getclaimbyid(claim_id)
-        return self.format_claim_from_daemon(claim)
+        return await self.format_claim_from_daemon(claim)
 
     async def claimtrie_getclaimsbyids(self, *claim_ids):
         claims = await self.batched_formatted_claims_from_daemon(claim_ids)
