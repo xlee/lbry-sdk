@@ -1,3 +1,4 @@
+import time
 import base64
 import struct
 from typing import List
@@ -74,7 +75,8 @@ class Outputs:
         return base64.b64encode(cls.to_bytes(txo_rows, extra_txo_rows, offset, total)).decode()
 
     @classmethod
-    def to_bytes(cls, txo_rows, extra_txo_rows, offset=0, total=None) -> bytes:
+    def to_bytes(cls, txo_rows, extra_txo_rows, offset=0, total=None, timing=None) -> bytes:
+        started_serialization = time.time()
         page = OutputsMessage()
         page.offset = offset
         if total is not None:
@@ -83,7 +85,8 @@ class Outputs:
             cls.row_to_message(row, page.txos.add())
         for row in extra_txo_rows:
             cls.row_to_message(row, page.extra_txos.add())
-        return page.SerializeToString()
+        timing['serialization'] = time.time() - started_serialization
+        return page.SerializeToString(), timing
 
     @classmethod
     def row_to_message(cls, txo, txo_message):

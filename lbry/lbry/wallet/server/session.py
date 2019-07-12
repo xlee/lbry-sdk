@@ -1,4 +1,5 @@
 import os
+import time
 import math
 import base64
 import asyncio
@@ -56,11 +57,14 @@ class LBRYElectrumX(ElectrumX):
         self.request_handlers.update(handlers)
 
     async def claimtrie_search(self, **kwargs):
+        started = time.time()
         if 'claim_id' in kwargs:
             self.assert_claim_id(kwargs['claim_id'])
-        return base64.b64encode(await asyncio.get_running_loop().run_in_executor(
-            self.session_mgr.query_executor, reader.search_to_bytes, kwargs
-        )).decode()
+        serialized, timing = await asyncio.get_running_loop().run_in_executor(
+            self.session_mgr.query_executor, reader.search_to_bytes, started, kwargs
+        )
+        print(timing)
+        return serialized
 
     async def claimtrie_resolve(self, *urls):
         return base64.b64encode(await asyncio.get_running_loop().run_in_executor(

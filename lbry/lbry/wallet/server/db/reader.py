@@ -1,5 +1,9 @@
+import os
 import sqlite3
+import time
 import struct
+import base64
+import json
 from typing import Tuple, List
 from binascii import unhexlify
 from decimal import Decimal
@@ -208,26 +212,42 @@ def get_claims_count(**constraints):
     return count[0][0]
 
 
-def search(constraints) -> Tuple[List, List, int, int]:
+def search(started, constraints) -> Tuple[List, List, int, int, dict]:
+    started_process = time.time()
+    time_to_start_process = started_process - started
     assert set(constraints).issubset(SEARCH_PARAMS), \
         f"Search query contains invalid arguments: {set(constraints).difference(SEARCH_PARAMS)}"
     total = None
+    counted_claims = False
     if not constraints.pop('no_totals', False):
         total = get_claims_count(**constraints)
+        counted_claims = time.time() - started_process
     constraints['offset'] = abs(constraints.get('offset', 0))
     constraints['limit'] = min(abs(constraints.get('limit', 10)), 50)
     if 'order_by' not in constraints:
         constraints['order_by'] = ["height", "^name"]
     txo_rows = _search(**constraints)
+    got_txo_rows = time.time() - started_process - counted_claims
     channel_hashes = set(txo['channel_hash'] for txo in txo_rows if txo['channel_hash'])
     extra_txo_rows = []
+    added_extra_rows = False
     if channel_hashes:
         extra_txo_rows = _search(**{'claim.claim_hash__in': [sqlite3.Binary(h) for h in channel_hashes]})
-    return txo_rows, extra_txo_rows, constraints['offset'], total
+        added_extra_rows = time.time() - started_process - counted_claims - got_txo_rows
+    timing = {
+        'pid': os.getpid(),
+        'started_in': time_to_start_process,
+        'counted_in': counted_claims,
+        'claims': got_txo_rows,
+        'channels': added_extra_rows
+    }
+    return txo_rows, extra_txo_rows, constraints['offset'], total, timing
 
 
-def search_to_bytes(constraints) -> bytes:
-    return Outputs.to_bytes(*search(constraints))
+def search_to_bytes(started_time, constraints) -> Tuple[bytes, str]:
+    constraints_str = json.dumps(constraints)
+    serialized, debug = Outputs.to_bytes(*search(started_time, constraints))
+    return base64.b64encode(serialized).decode(), f"\npid={debug['pid']}, started in={debug['started_in']}, counted in={debug['counted_in']}, found claims in={debug['claims']}, found channels in={debug['channels']}\nconstraints: {constraints_str}"
 
 
 def _search(**constraints):
