@@ -1,8 +1,11 @@
+import os
 import sqlite3
 import struct
+import asyncio
 from typing import Tuple, List
 from binascii import unhexlify
 from decimal import Decimal
+from concurrent.futures.thread import ThreadPoolExecutor
 from contextvars import ContextVar
 
 from torba.client.basedatabase import query
@@ -50,20 +53,34 @@ PRAGMAS = """
 
 db = ContextVar('db')
 ledger = ContextVar('ledger')
+thread_pool = ContextVar('thread_pool')
+loop = ContextVar('loop')
+
+
+def get_thread_initializer(_path, _ledger_name):
+    def initializer():
+        _db = sqlite3.connect(_path, isolation_level=None, uri=True)
+        _db.row_factory = sqlite3.Row
+        db.set(_db)
+        from lbry.wallet.ledger import MainNetLedger, RegTestLedger
+        ledger.set(MainNetLedger if _ledger_name == 'mainnet' else RegTestLedger)
+    return initializer
 
 
 def initializer(_path, _ledger_name):
-    _db = sqlite3.connect(_path, isolation_level=None, uri=True)
-    _db.row_factory = sqlite3.Row
-    db.set(_db)
-    from lbry.wallet.ledger import MainNetLedger, RegTestLedger
-    ledger.set(MainNetLedger if _ledger_name == 'mainnet' else RegTestLedger)
+    thread_pool.set(
+        ThreadPoolExecutor(
+            thread_name_prefix=f"child-{os.getpid()}-thread", initializer=get_thread_initializer(_path, _ledger_name)
+        )
+    )
+    loop.set(asyncio.new_event_loop())
 
 
 def cleanup():
-    db.get().close()
-    db.set(None)
-    ledger.set(None)
+    thread_pool.get().shutdown()
+    thread_pool.set(None)
+    loop.get().close()
+    loop.set(None)
 
 
 def get_claims(cols, for_count=False, **constraints):
@@ -197,7 +214,11 @@ def get_claims(cols, for_count=False, **constraints):
         LEFT JOIN claim as channel ON (claim.channel_hash=channel.claim_hash)
         """, **constraints
     )
-    return db.get().execute(sql, values).fetchall()
+
+    def execute():
+        return db.get().execute(sql, values).fetchall()
+
+    return loop.get().run_until_complete(loop.get().run_in_executor(thread_pool.get(), execute))
 
 
 def get_claims_count(**constraints):
