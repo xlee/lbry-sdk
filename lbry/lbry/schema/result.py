@@ -75,7 +75,7 @@ class Outputs:
         return base64.b64encode(cls.to_bytes(txo_rows, extra_txo_rows, offset, total)).decode()
 
     @classmethod
-    def to_bytes(cls, txo_rows, extra_txo_rows, offset=0, total=None, timing=None) -> bytes:
+    def to_bytes(cls, txo_rows, extra_txo_rows, offset=0, total=None, timing=None):
         started_serialization = time.time()
         page = OutputsMessage()
         page.offset = offset
@@ -85,8 +85,10 @@ class Outputs:
             cls.row_to_message(row, page.txos.add())
         for row in extra_txo_rows:
             cls.row_to_message(row, page.extra_txos.add())
-        timing['serialization'] = time.time() - started_serialization
-        return page.SerializeToString(), timing
+        if timing:
+            timing['serialization'] = time.time() - started_serialization
+            return page.SerializeToString(), timing
+        return page.SerializeToString()
 
     @classmethod
     def row_to_message(cls, txo, txo_message):
