@@ -79,7 +79,7 @@ class _SimpleTimeSeriesChartState extends State<SimpleTimeSeriesChart> {
         );
         var increase = 1;
         loadData.add(LoadDataPoint());
-        loadGenerator = LoadGenerator('spv2.lbry.com', 50001, {
+        loadGenerator = LoadGenerator('spv1.lbry.com', 50001, {
                 'id': 1,
                 'method': 'blockchain.claimtrie.search',
                 'params': {

@@ -52,21 +52,35 @@ PRAGMAS = """
 """
 
 
-db = ContextVar('db')
+query_executer = ContextVar('db')
 ledger = ContextVar('ledger')
 
 
 def initializer(_path, _ledger_name):
     _db = sqlite3.connect(_path, isolation_level=None, uri=True)
     _db.row_factory = sqlite3.Row
-    db.set(_db)
+    _db.executescript(PRAGMAS)
+    pid = os.getpid()
+    print(f"initialize pid {pid}")
+
+    def _query_executer(sql, values):
+        start = time.time()
+        query_result = _db.execute(sql, values)
+        query_time = time.time() - start
+        fetched = query_result.fetchall()
+        fetched_time = time.time() - query_time - start
+        if fetched_time > 0.2 or query_time > 0.2:
+            print(f"\nexecuted in {query_time}, fetched in {fetched_time}\n{sql}")
+        return fetched
+
+    query_executer.set(_query_executer)
     from lbry.wallet.ledger import MainNetLedger, RegTestLedger
     ledger.set(MainNetLedger if _ledger_name == 'mainnet' else RegTestLedger)
 
 
 def cleanup():
-    db.get().close()
-    db.set(None)
+    # db.get().close()
+    query_executer.set(None)
     ledger.set(None)
 
 
@@ -189,19 +203,56 @@ def get_claims(cols, for_count=False, **constraints):
     if 'fee_currency' in constraints:
         constraints['claim.fee_currency'] = constraints.pop('fee_currency').lower()
 
-    _apply_constraints_for_array_attributes(constraints, 'tag', clean_tags, for_count)
     _apply_constraints_for_array_attributes(constraints, 'language', lambda _: _, for_count)
     _apply_constraints_for_array_attributes(constraints, 'location', lambda _: _, for_count)
 
-    select = f"SELECT {cols} FROM claim"
+    any_tags = clean_tags(constraints.pop("any_tags", []))
+    not_tags = clean_tags(constraints.pop("not_tags", []))
+    all_tags = clean_tags(constraints.pop("all_tags", []))
+
+    table = 'claim' if not any((any_tags, not_tags, all_tags)) else 'tag'
+
+    sql_lines = [
+        f"SELECT DISTINCT {cols} FROM {table}"
+    ]
+
+    if any_tags or not_tags or all_tags:
+        sql_lines.append("INNER JOIN claim ON claim.claim_hash=tag.claim_hash")
+    if any_tags:
+        any_tags_sql = ", ".join(f":$any_tag{i}" for i in range(len(any_tags)))
+        constraints.update({f"$any_tag{i}": tag for i, tag in enumerate(any_tags)})
+        sql_lines.append(f"AND tag.tag IN ({any_tags_sql})")
+    if not_tags:
+        not_tags_sql = ", ".join(f":$not_tag{i}" for i in range(len(not_tags)))
+        constraints.update({f"$not_tag{i}": tag for i, tag in enumerate(not_tags)})
+        sql_lines.append(
+            f"AND NOT EXISTS( "
+            f"SELECT 1 FROM tag not_tag "
+            f"INNER JOIN claim not_tagged_claim ON not_tagged_claim.claim_hash=claim.claim_hash "
+            f"AND not_tag.claim_hash=not_tagged_claim.claim_hash AND not_tag.tag IN ({not_tags_sql}) "
+            f")"
+        )
+    if all_tags:
+        for i, all_tag in enumerate(all_tags):
+            constraints.update({f"$all_tag{i}": all_tag})
+            sql_lines.append(
+                f"AND ( "
+                f"   SELECT 1 FROM tag all_tag{i} WHERE all_tag{i}.claim_hash=claim.claim_hash AND all_tag{i}.tag=:$all_tag{i} "
+                f") IS NOT NULL"
+            )
+    if not for_count:
+        sql_lines.extend(
+            [
+                "LEFT JOIN claimtrie ON claim.claim_hash=claimtrie.claim_hash",
+                "LEFT JOIN claim as channel ON claim.channel_hash=channel.claim_hash"
+            ]
+        )
 
     sql, values = query(
-        select if for_count else select+"""
-        LEFT JOIN claimtrie USING (claim_hash)
-        LEFT JOIN claim as channel ON (claim.channel_hash=channel.claim_hash)
-        """, **constraints
+        " ".join(sql_lines), **constraints
     )
-    return db.get().execute(sql, values).fetchall()
+
+    return query_executer.get()(sql, values)
 
 
 def get_claims_count(**constraints):
@@ -222,7 +273,7 @@ def search(started, constraints) -> Tuple[List, List, int, int, dict]:
     if not constraints.pop('no_totals', False):
         total = get_claims_count(**constraints)
         counted_claims = time.time() - started_process
-    constraints['offset'] = abs(constraints.get('offset', 0))
+    constraints['offset'] = abs(constraints.pop('offset', 0))
     constraints['limit'] = min(abs(constraints.get('limit', 10)), 50)
     if 'order_by' not in constraints:
         constraints['order_by'] = ["height", "^name"]
@@ -247,7 +298,8 @@ def search(started, constraints) -> Tuple[List, List, int, int, dict]:
 def search_to_bytes(started_time, constraints) -> Tuple[bytes, str]:
     constraints_str = json.dumps(constraints)
     serialized, debug = Outputs.to_bytes(*search(started_time, constraints))
-    return base64.b64encode(serialized).decode(), f"\npid={debug['pid']}, started in={debug['started_in']}, counted in={debug['counted_in']}, found claims in={debug['claims']}, found channels in={debug['channels']}\nconstraints: {constraints_str}"
+    total_time = (debug['counted_in'] or 0) + (debug['claims'] or 0) + (debug['channels'] or 0)
+    return base64.b64encode(serialized).decode(), f"\npid={debug['pid']}, runtime={total_time}, started in={debug['started_in']}, counted in={debug['counted_in']}, found claims in={debug['claims']}, found channels in={debug['channels']}\nconstraints: {constraints_str}"
 
 
 def _search(**constraints):
