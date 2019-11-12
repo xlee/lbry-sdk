@@ -497,7 +497,11 @@ class Config(CLIConfig):
     )
     udp_port = Integer("UDP port for communicating on the LBRY DHT", 4444, previous_names=['dht_node_port'])
     tcp_port = Integer("TCP port to listen for incoming blob requests", 3333, previous_names=['peer_port'])
+    bittorrent_port = Integer("Port for libtorrent to bind", 6881)
     network_interface = String("Interface to use for the DHT and blob exchange", '0.0.0.0')
+    support_bittorrent = Toggle(
+        "Support downloads from the bittorrent network using libtorrent", True
+    )
 
     # routing table
     split_buckets_under_index = Integer(
@@ -564,13 +568,15 @@ class Config(CLIConfig):
         ('spv8.lbry.com', 50001),
         ('spv9.lbry.com', 50001),
     ])
-    known_dht_nodes = Servers("Known nodes for bootstrapping connection to the DHT", [
+    known_dht_nodes = Servers("Known nodes for bootstrapping connection to the LBRY DHT", [
         ('lbrynet1.lbry.com', 4444),  # US EAST
         ('lbrynet2.lbry.com', 4444),  # US WEST
         ('lbrynet3.lbry.com', 4444),  # EU
         ('lbrynet4.lbry.com', 4444)  # ASIA
     ])
-
+    bittorrent_dht_seeds = Servers("Known nodes for bootstrapping connection to the bittorrent DHT", [
+        ("router.utorrent.com", 6881)
+    ])
     comment_server = String("Comment server API URL", "https://comments.lbry.com/api")
 
     # blockchain
