@@ -5,6 +5,7 @@ import logging
 import math
 import binascii
 import typing
+import libtorrent
 import base58
 
 from aioupnp import __version__ as aioupnp_version
@@ -419,8 +420,27 @@ class StreamManagerComponent(Component):
             if self.component_manager.has_component(DHT_COMPONENT) else None
         log.info('Starting the file manager')
         loop = asyncio.get_event_loop()
+
+        torrent_session = None
+        if self.conf.support_bittorrent:
+            log.info("Starting bittorrent session manager")
+            torrent_session = await loop.run_in_executor(
+                None, libtorrent.session, {
+                'listen_interfaces': f"{self.conf.network_interface}:{self.conf.bittorrent_port}",
+                'enable_outgoing_utp': True,
+                'enable_incoming_utp': True,
+                'enable_outgoing_tcp': True,
+                'enable_incoming_tcp': True
+            })
+            for torrent_seed_address, torrent_seed_port in self.conf.bittorrent_dht_seeds:
+                await loop.run_in_executor(
+                    None, torrent_session.add_dht_router, torrent_seed_address, torrent_seed_port
+                )
+            log.info("Started bittorrent session manager")
+
         self.stream_manager = StreamManager(
-            loop, self.conf, blob_manager, wallet, storage, node, self.component_manager.analytics_manager
+            loop, self.conf, blob_manager, wallet, storage, node, self.component_manager.analytics_manager,
+            torrent_session=torrent_session
         )
         await self.stream_manager.start()
         log.info('Done setting up file manager')

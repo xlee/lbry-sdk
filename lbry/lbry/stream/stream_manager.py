@@ -4,6 +4,7 @@ import binascii
 import logging
 import random
 import typing
+import libtorrent
 from typing import Optional
 from aiohttp.web import Request
 from lbry.error import ResolveError, InvalidStreamDescriptorError
@@ -11,6 +12,7 @@ from lbry.error import ResolveTimeout, DownloadDataTimeout
 from lbry.utils import cache_concurrent
 from lbry.stream.descriptor import StreamDescriptor
 from lbry.stream.managed_stream import ManagedStream
+from lbry.stream.torrent import Torrent
 from lbry.schema.claim import Claim
 from lbry.schema.url import URL
 from lbry.wallet.dewies import dewies_to_lbc
@@ -67,7 +69,8 @@ def path_or_none(p) -> Optional[str]:
 class StreamManager:
     def __init__(self, loop: asyncio.AbstractEventLoop, config: 'Config', blob_manager: 'BlobManager',
                  wallet_manager: 'LbryWalletManager', storage: 'SQLiteStorage', node: Optional['Node'],
-                 analytics_manager: Optional['AnalyticsManager'] = None):
+                 analytics_manager: Optional['AnalyticsManager'] = None,
+                 torrent_session: typing.Optional['libtorrent.session'] = None):
         self.loop = loop
         self.config = config
         self.blob_manager = blob_manager
@@ -75,7 +78,9 @@ class StreamManager:
         self.storage = storage
         self.node = node
         self.analytics_manager = analytics_manager
+        self.torrent_session = torrent_session
         self.streams: typing.Dict[str, ManagedStream] = {}
+        self.torrents: typing.Dict[str, Torrent] = {}
         self.resume_saving_task: Optional[asyncio.Task] = None
         self.re_reflect_task: Optional[asyncio.Task] = None
         self.update_stream_finished_futs: typing.List[asyncio.Future] = []
@@ -333,6 +338,21 @@ class StreamManager:
                 result[url] = txo
         return result
 
+    def _add_torrent(self, btih: str, download_directory: typing.Optional[str] = None) -> Torrent:
+        torrent = Torrent(self.loop, self.torrent_session.add_torrent({
+            'info_hash': binascii.unhexlify(btih.encode()),
+            'save_path': download_directory or self.config.download_dir
+        }))
+        self.torrents[btih] = torrent
+        return torrent
+
+    async def add_torrent(self, btih, download_path: typing.Optional[str] = None) -> Torrent:
+        torrent = await self.loop.run_in_executor(
+            None, self._add_torrent, btih, download_path
+        )
+        self.loop.create_task(self.torrents[btih].wait_for_finished())
+        return torrent
+
     @cache_concurrent
     async def download_stream_from_uri(self, uri, exchange_rate_manager: 'ExchangeRateManager',
                                        timeout: Optional[float] = None,
@@ -387,7 +407,6 @@ class StreamManager:
             if 'error' in resolved:
                 raise ResolveError(f"error resolving stream: {resolved['error']}")
             txo = response[uri]
-
             claim = Claim.from_bytes(binascii.unhexlify(resolved['protobuf']))
             outpoint = f"{resolved['txid']}:{resolved['nout']}"
             resolved_time = self.loop.time() - start_time
@@ -409,7 +428,10 @@ class StreamManager:
                 payment = await manager.create_purchase_transaction(
                     wallet.accounts, txo, exchange_rate_manager
                 )
-
+            if not claim.stream.source.sd_hash:
+                log.info("downloading a torrent")
+                await self.add_torrent(claim.stream.source.bt_infohash, download_directory)
+                return "woah"
             stream = ManagedStream(
                 self.loop, self.config, self.blob_manager, claim.stream.source.sd_hash, download_directory,
                 file_name, ManagedStream.STATUS_RUNNING, content_fee=payment,
