@@ -15,6 +15,7 @@ from lbry.schema.result import Outputs, INVALID, NOT_FOUND
 from lbry.schema.url import URL
 from lbry.crypto.hash import hash160, double_sha256, sha256
 from lbry.crypto.base58 import Base58
+from lbry.utils import LRUCache
 
 from .tasks import TaskGroup
 from .database import Database
@@ -156,7 +157,7 @@ class Ledger(metaclass=LedgerRegistry):
         self._on_ready_controller = StreamController()
         self.on_ready = self._on_ready_controller.stream
 
-        self._tx_cache = pylru.lrucache(self.config.get("tx_cache_size", 10_000))
+        self._tx_cache = LRUCache(self.config.get("tx_cache_size", 10_000), TransactionCacheItem)
         self._update_tasks = TaskGroup()
         self._other_tasks = TaskGroup()  # that we dont need to start
         self._utxo_reservation_lock = asyncio.Lock()

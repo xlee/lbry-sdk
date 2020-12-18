@@ -206,15 +206,23 @@ async def resolve_host(url: str, port: int, proto: str) -> str:
 class LRUCache:
     __slots__ = [
         'capacity',
+        'default',
         'cache'
     ]
 
-    def __init__(self, capacity):
+    def __init__(self, capacity, default=None):
         self.capacity = capacity
+        self.default = default
         self.cache = collections.OrderedDict()
 
     def get(self, key):
-        value = self.cache.pop(key)
+        try:
+            value = self.cache.pop(key)
+        except KeyError:
+            if self.default:
+                value = self.default()
+            else:
+                raise
         self.cache[key] = value
         return value
 
@@ -228,6 +236,12 @@ class LRUCache:
 
     def __contains__(self, item) -> bool:
         return item in self.cache
+
+    def __getitem__(self, item):
+        return self.get(item)
+
+    def __setitem__(self, key, value):
+        return self.set(key, value)
 
 
 def lru_cache_concurrent(cache_size: typing.Optional[int] = None,
