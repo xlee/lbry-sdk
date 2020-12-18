@@ -259,7 +259,7 @@ class BlockchainSync(Sync):
 
     async def sync_claims(self, blocks) -> bool:
         delete_claims = takeovers = claims_with_changed_supports = claims_with_changed_reposts = 0
-        initial_sync = not await self.db.has_filters()
+        initial_sync = not await self.db.has_claims()
         with Progress(self.db.message_queue, CLAIMS_INIT_EVENT) as p:
             if initial_sync:
                 total, batches = await self.distribute_unspent_txos(CLAIM_TYPE_CODES)
@@ -308,9 +308,9 @@ class BlockchainSync(Sync):
                 await self.db.run(claim_phase.update_stakes, blocks, claims_with_changed_supports)
             if claims_with_changed_reposts:
                 await self.db.run(claim_phase.update_reposts, blocks, claims_with_changed_reposts)
-            if initial_sync:
+            if initial_sync and batches:
                 await self.db.run(claim_phase.claims_constraints_and_indexes)
-            else:
+            elif not initial_sync:
                 await self.db.run(claim_phase.claims_vacuum)
             return initial_sync
 
