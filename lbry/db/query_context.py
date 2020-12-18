@@ -12,7 +12,7 @@ from contextvars import ContextVar
 from sqlalchemy import create_engine, inspect, bindparam, func, exists, event as sqlalchemy_event
 from sqlalchemy.future import select
 from sqlalchemy.engine import Engine
-from sqlalchemy.sql import Insert
+from sqlalchemy.sql import Insert, text
 try:
     from pgcopy import CopyManager
 except ImportError:
@@ -72,7 +72,7 @@ class QueryContext:
         if self._variable_limit is not None:
             return self._variable_limit
         if self.is_sqlite:
-            for result in self.fetchall('PRAGMA COMPILE_OPTIONS;'):
+            for result in self.fetchall(text('PRAGMA COMPILE_OPTIONS;')):
                 for _, value in result.items():
                     if value.startswith('MAX_VARIABLE_NUMBER'):
                         self._variable_limit = int(value.split('=')[1])
